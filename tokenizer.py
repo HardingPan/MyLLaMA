@@ -13,11 +13,20 @@ from datasets import load_dataset
 from tokenizers.normalizers import NFKC
 from typing import Generator
 
+import json
+
 dataset = load_dataset("wikitext", "wikitext-103-v1", split="train")
 # 准备训练数据
 def batch_iterator(batch_size=1000):
     for i in range(0, len(dataset), batch_size):
         yield dataset[i:i+batch_size]["text"]
+        
+
+def read_texts_from_jsonl(file_path):
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            data = json.loads(line)
+            yield data['text']
 
 # 读取本地文本数据集
 def load_text_from_files(path_list):
@@ -73,3 +82,36 @@ def create_tokenizer_config(save_dir: str) -> None:
     }
     with open(os.path.join(save_dir, "special_tokens_map.json"), "w", encoding="utf-8") as f:
         json.dump(special_tokens_map, f, ensure_ascii=False, indent=4)
+
+# 训练BPE Tokenizer
+def train_tokenizer(data_path: str, save_dir: str, vocab_size: int = 8192) -> None:
+    """训练并保存自定义tokenizer"""
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # 初始化tokenizer
+    tokenizer = Tokenizer(models.BPE(unk_token="<unk>"))
+    tokenizer.normalizer = NFKC() # 添加文本规范化
+    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    tokenizer.decoder = decoders.ByteLevel()
+    
+    # 配置特殊token
+    special_tokens = [
+        "<unk>",
+        "<s>",
+        "</s>",
+        "<|im_start|>",
+        "<|im_end|>"
+    ]
+    
+    # 配置训练器
+    trainer = trainers.BpeTrainer(
+        vocab_size = vocab_size, 
+        special_tokens=special_tokens, 
+        min_frequency=2, 
+        show_progress=True, 
+        initial_alphabet=pre_tokenizers.BtyeLevel.alphabet()
+    )
+    
+    # 训练tokenizer
+    print(f"Training tokenizer with data from {data_path}")
+    text = read_texts_from_jsonl(data_path)
